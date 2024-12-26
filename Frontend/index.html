@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Personal Savings Tracker</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        line-height: 1.6;
+        margin: 0;
+        padding: 0;
+        background-color: #f4f4f4;
+      }
+
+      .container {
+        width: 90%;
+        max-width: 800px;
+        margin: 2rem auto;
+        background-color: white;
+        padding: 2rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+      }
+
+      h1,
+      h2 {
+        text-align: center;
+        color: #333;
+      }
+
+      .wallet-section {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1.5rem;
+        padding: 1rem;
+        background-color: #f9f9f9;
+        border-radius: 5px;
+      }
+
+      .create-goal-section form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+
+      input,
+      button {
+        padding: 0.75rem;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+      }
+
+      button {
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        cursor: pointer;
+        transition: background-color 0.3s ease;
+      }
+
+      button:hover {
+        background-color: #45a049;
+      }
+
+      .goals-section,
+      .rewards-section {
+        margin-top: 2rem;
+        padding: 1rem;
+        background-color: #f9f9f9;
+        border-radius: 5px;
+      }
+
+      .goal-card {
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 5px;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .goal-actions {
+        display: flex;
+        gap: 0.5rem;
+      }
+
+      #errorMessage {
+        color: red;
+        text-align: center;
+        margin-top: 1rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>Personal Savings Tracker</h1>
+
+      <div class="wallet-section">
+        <p>Connected Wallet: <span id="walletAddress">Not Connected</span></p>
+        <button id="connectWallet">Connect Wallet</button>
+      </div>
+
+      <div id="errorMessage"></div>
+
+      <div class="create-goal-section">
+        <h2>Create New Savings Goal</h2>
+        <form id="createGoalForm">
+          <input type="text" id="goalName" placeholder="Goal Name" required />
+          <input
+            type="number"
+            id="targetAmount"
+            placeholder="Target Amount (ETH)"
+            step="0.01"
+            required
+          />
+          <input
+            type="number"
+            id="deadlineDays"
+            placeholder="Deadline (Days)"
+            required
+          />
+          <button type="submit">Create Goal</button>
+        </form>
+      </div>
+
+      <div class="goals-section">
+        <h2>Your Savings Goals</h2>
+        <div id="goalsList"></div>
+      </div>
+
+      <div class="rewards-section">
+        <h2>Reward Points</h2>
+        <p>Total Reward Points: <span id="totalRewardPoints">0</span></p>
+      </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/web3@1.7.4/dist/web3.min.js"></script>
+    <script>
+      // Smart Contract ABI and Address (REPLACE WITH YOUR DEPLOYED CONTRACT DETAILS)
+      const CONTRACT_ADDRESS = "0xe4d2860e9f98c8E5132bC17b670C7001ffc7f8E5"; // Your deployed contract address
+      const CONTRACT_ABI = [
+        // Paste your full contract ABI here
+        // Example structure:
+        [
+          {
+            anonymous: false,
+            inputs: [
+              {
+                indexed: true,
+                internalType: "address",
+                name: "user",
+                type: "address",
+              },
+              {
+                indexed: false,
+                internalType: "uint256",
+                name: "goalIndex",
+                type: "uint256",
+              },
+              {
+                indexed: false,
+                internalType: "uint256",
+                name: "rewardPointsEarned",
+                type: "uint256",
+              },
+            ],
+            name: "GoalCompleted",
+            type: "event",
+          },
+          {
+            anonymous: false,
+            inputs: [
+              {
+                indexed: true,
+                internalType: "address",
+                name: "user",
+                type: "address",
+              },
+              {
+                indexed: false,
+                internalType: "string",
+                name: "name",
+                type: "string",
+              },
+              {
+                indexed: false,
+                internalType: "uint256",
+                name: "targetAmount",
+                type: "uint256",
+              },
+              {
+                indexed: false,
+                internalType: "uint256",
+                name: "deadline",
+                type: "uint256",
+              },
+            ],
+            name: "GoalCreated",
+            type: "event",
+          },
+          {
+            anonymous: false,
+            inputs: [
+              {
+                indexed: true,
+                internalType: "address",
+                name: "user",
+                type: "address",
+              },
+              {
+                indexed: false,
+                internalType: "uint256",
+                name: "goalIndex",
+                type: "uint256",
+              },
+              {
+                indexed: false,
+                internalType: "uint256",
+                name: "amount",
+                type: "uint256",
+              },
+            ],
+            name: "SavingDeposited",
+            type: "event",
+          },
+          {
+            inputs: [
+              {
+                internalType: "string",
+                name: "_name",
+                type: "string",
+              },
+              {
+                internalType: "uint256",
+                name: "_targetAmount",
+                type: "uint256",
+              },
+              {
+                internalType: "uint256",
+                name: "_deadlineInDays",
+                type: "uint256",
+              },
+            ],
+            name: "createSavingsGoal",
+            outputs: [],
+            stateMutability: "nonpayable",
+            type: "function",
+          },
+          {
+            inputs: [
+              {
+                internalType: "uint256",
+                name: "_goalIndex",
+                type: "uint256",
+              },
+            ],
+            name: "depositToGoal",
+            outputs: [],
+            stateMutability: "payable",
+            type: "function",
+          },
+          {
+            inputs: [],
+            name: "getUserRewardPoints",
+            outputs: [
+              {
+                internalType: "uint256",
+                name: "",
+                type: "uint256",
+              },
+            ],
+            stateMutability: "view",
+            type: "function",
+          },
+          {
+            inputs: [],
+            name: "getUserSavingsGoals",
+            outputs: [
+              {
+                components: [
+                  {
+                    internalType: "address",
+                    name: "owner",
+                    type: "address",
+                  },
+                  {
+                    internalType: "string",
+                    name: "name",
+                    type: "string",
+                  },
+                  {
+                    internalType: "uint256",
+                    name: "targetAmount",
+                    type: "uint256",
+                  },
+                  {
+                    internalType: "uint256",
+                    name: "currentAmount",
+                    type: "uint256",
+                  },
+                  {
+                    internalType: "uint256",
+                    name: "deadline",
+                    type: "uint256",
+                  },
+                  {
+                    internalType: "bool",
+                    name: "completed",
+                    type: "bool",
+                  },
+                  {
+                    internalType: "uint256",
+                    name: "rewardPoints",
+                    type: "uint256",
+                  },
+                ],
+                internalType: "struct PersonalSavingsTracker.SavingsGoal[]",
+                name: "",
+                type: "tuple[]",
+              },
+            ],
+            stateMutability: "view",
+            type: "function",
+          },
+          {
+            inputs: [
+              {
+                internalType: "address",
+                name: "",
+                type: "address",
+              },
+            ],
+            name: "userRewardPoints",
+            outputs: [
+              {
+                internalType: "uint256",
+                name: "",
+                type: "uint256",
+              },
+            ],
+            stateMutability: "view",
+            type: "function",
+          },
+          {
+            inputs: [
+              {
+                internalType: "address",
+                name: "",
+                type: "address",
+              },
+              {
+                internalType: "uint256",
+                name: "",
+                type: "uint256",
+              },
+            ],
+            name: "userSavingsGoals",
+            outputs: [
+              {
+                internalType: "address",
+                name: "owner",
+                type: "address",
+              },
+              {
+                internalType: "string",
+                name: "name",
+                type: "string",
+              },
+              {
+                internalType: "uint256",
+                name: "targetAmount",
+                type: "uint256",
+              },
+              {
+                internalType: "uint256",
+                name: "currentAmount",
+                type: "uint256",
+              },
+              {
+                internalType: "uint256",
+                name: "deadline",
+                type: "uint256",
+              },
+              {
+                internalType: "bool",
+                name: "completed",
+                type: "bool",
+              },
+              {
+                internalType: "uint256",
+                name: "rewardPoints",
+                type: "uint256",
+              },
+            ],
+            stateMutability: "view",
+            type: "function",
+          },
+          {
+            inputs: [
+              {
+                internalType: "uint256",
+                name: "_goalIndex",
+                type: "uint256",
+              },
+            ],
+            name: "withdrawCompletedGoalFunds",
+            outputs: [],
+            stateMutability: "nonpayable",
+            type: "function",
+          },
+        ],
+        // Add all other contract methods from the ABI
+      ];
+
+      let web3;
+      let contract;
+      let userAddress;
+
+      // Display error message
+      function showError(message) {
+        const errorElement = document.getElementById("errorMessage");
+        errorElement.textContent = message;
+        console.error(message);
+      }
+
+      // Connect Wallet
+      async function connectWallet() {
+        if (window.ethereum) {
+          try {
+            // Request account access
+            const accounts = await window.ethereum.request({
+              method: "eth_requestAccounts",
+            });
+
+            // Initialize Web3
+            web3 = new Web3(window.ethereum);
+            userAddress = accounts[0];
+            document.getElementById("walletAddress").textContent = userAddress;
+
+            // Initialize contract
+            contract = new web3.eth.Contract(CONTRACT_ABI, CONTRACT_ADDRESS);
+
+            // Load user's goals and reward points
+            await loadUserGoals();
+            await loadRewardPoints();
+          } catch (error) {
+            showError("Failed to connect wallet: " + error.message);
+          }
+        } else {
+          showError("Please install MetaMask!");
+        }
+      }
+
+      // Create Savings Goal
+      async function createSavingsGoal(event) {
+        event.preventDefault();
+
+        if (!contract) {
+          showError("Please connect wallet first");
+          return;
+        }
+
+        const goalName = document.getElementById("goalName").value;
+        const targetAmount = document.getElementById("targetAmount").value;
+        const deadlineDays = document.getElementById("deadlineDays").value;
+
+        try {
+          // Convert ETH to wei
+          const targetAmountWei = web3.utils.toWei(targetAmount, "ether");
+
+          // Call contract method
+          await contract.methods
+            .createSavingsGoal(
+              goalName,
+              targetAmountWei,
+              parseInt(deadlineDays)
+            )
+            .send({ from: userAddress });
+
+          // Refresh goals
+          await loadUserGoals();
+
+          // Reset form
+          event.target.reset();
+        } catch (error) {
+          showError("Failed to create savings goal: " + error.message);
+        }
+      }
+
+      // Load User Goals
+      async function loadUserGoals() {
+        if (!contract) return;
+
+        try {
+          const goals = await contract.methods
+            .getUserSavingsGoals()
+            .call({ from: userAddress });
+          const goalsListElement = document.getElementById("goalsList");
+          goalsListElement.innerHTML = ""; // Clear previous goals
+
+          goals.forEach((goal, index) => {
+            const goalCard = document.createElement("div");
+            goalCard.className = "goal-card";
+
+            // Format dates and amounts
+            const deadline = new Date(
+              goal.deadline * 1000
+            ).toLocaleDateString();
+            const currentAmount = web3.utils.fromWei(
+              goal.currentAmount,
+              "ether"
+            );
+            const targetAmount = web3.utils.fromWei(goal.targetAmount, "ether");
+
+            goalCard.innerHTML = `
+                        <div>
+                            <strong>${goal.name}</strong>
+                            <p>Target: ${targetAmount} ETH</p>
+                            <p>Current: ${currentAmount} ETH</p>
+                            <p>Deadline: ${deadline}</p>
+                            <p>Status: ${
+                              goal.completed ? "Completed" : "In Progress"
+                            }</p>
+                        </div>
+                        <div class="goal-actions">
+                            <button onclick="depositToGoal(${index})">Deposit</button>
+                            ${
+                              goal.completed
+                                ? `<button onclick="withdrawCompletedGoalFunds(${index})">Withdraw</button>`
+                                : ""
+                            }
+                        </div>
+                    `;
+
+            goalsListElement.appendChild(goalCard);
+          });
+        } catch (error) {
+          showError("Error loading goals: " + error.message);
+        }
+      }
+
+      // Deposit to Goal
+      async function depositToGoal(goalIndex) {
+        if (!contract) {
+          showError("Please connect wallet first");
+          return;
+        }
+
+        const amountEth = prompt("Enter amount to deposit (in ETH):");
+        if (!amountEth) return;
+
+        try {
+          const amountWei = web3.utils.toWei(amountEth, "ether");
+          await contract.methods.depositToGoal(goalIndex).send({
+            from: userAddress,
+            value: amountWei,
+          });
+
+          await loadUserGoals();
+        } catch (error) {
+          showError("Failed to deposit: " + error.message);
+        }
+      }
+
+      // Withdraw Completed Goal Funds
+      async function withdrawCompletedGoalFunds(goalIndex) {
+        if (!contract) {
+          showError("Please connect wallet first");
+          return;
+        }
+
+        try {
+          await contract.methods.withdrawCompletedGoalFunds(goalIndex).send({
+            from: userAddress,
+          });
+
+          await loadUserGoals();
+        } catch (error) {
+          showError("Failed to withdraw funds: " + error.message);
+        }
+      }
+
+      // Load Reward Points
+      async function loadRewardPoints() {
+        if (!contract) return;
+
+        try {
+          const points = await contract.methods
+            .getUserRewardPoints()
+            .call({ from: userAddress });
+          document.getElementById("totalRewardPoints").textContent =
+            points.toString();
+        } catch (error) {
+          showError("Error loading reward points: " + error.message);
+        }
+      }
+
+      // Event Listeners
+      document.addEventListener("DOMContentLoaded", () => {
+        document
+          .getElementById("connectWallet")
+          .addEventListener("click", connectWallet);
+        document
+          .getElementById("createGoalForm")
+          .addEventListener("submit", createSavingsGoal);
+      });
+    </script>
+  </body>
+</html>
